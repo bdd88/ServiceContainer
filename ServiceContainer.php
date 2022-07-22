@@ -1,13 +1,13 @@
 <?php
-namespace ServiceContainer;
+namespace bdd88\ServiceContainer;
 
 use ReflectionClass;
 
 /**
  * An automatic (recursive) dependency injection container.
  * 
- * @version 1.0.0
- * @link https://github.com/bdd88/ServiceContainer.git
+ * @version 1.0.1
+ * @link https://github.com/bdd88/ServiceContainer
  */
 class ServiceContainer
 {
