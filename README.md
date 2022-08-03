@@ -3,18 +3,24 @@
 ServiceContainer is used to simplify the processess of implementing Inversion of Control (IoC) in your code through automatic Dependency Injection (DI).
 
 ## How it works
-1. Reflection is used to look for type hinted object arguments in the class constructor of the requested object.
-2. Step 1 is performed recursively on object dependencies to build a tree of dependencies.
-3. Once the dependency tree is complete, each object is instantiated and stored.
-4. Stored object dependencies are retrieved and injected as needed.
-5. The fully injected requested object is returned.
+1. Class dependencies are determined by using reflection to examine type hinting in the class constructor.
+2. A tree of dependencies is built by recursively performing step 1 on dependencies.
+3. Working from the leaf objects to the root, each object is injected with required dependencies and instantiated.
+4. Objects, reflections, and dependencies are stored for future use so no repeat calculations need to be performed.
 
 ## Usage & Best Practices
 + Define class dependencies by using type hinted arguments in class constructors.
 + Only use ServiceContainer to create objects from classes that will need a single instance (typically services such as logging or database models).
 + Make use of factories with ServiceContainer when multiple object instances of a class are needed.
 + Classes that have additional non-object dependencies need to be created using ServiceContainer individually/manually.
-+ Use fully qualified namespaces and a PSR-4 compliant lazy autoloader such as [bdd88\AutoLoader](https://github.com/bdd88/AutoLoader) to make managing class files even easier.
++ Use fully qualified namespaces and a PSR-4 compliant lazy autoloader such as Composer or [bdd88\AutoLoader](https://github.com/bdd88/AutoLoader) to make managing dependencies even easier.
+
+## Quickstart
+```
+    $serviceContainer = new \Bdd88\ServiceContainer\ServiceContainer();
+    $requestedObject = $serviceContainer->create('\Vendor\Namespace\Class', ['optional', 'additional', 'arguments']);
+    $previouslyCreatedObject = $serviceContainer->get('\Vendor\Namespace\Class');
+```
 
 ## Example Scenario
 You want to stop using the 'new' keyword within your classes so you can implement unit testing and will have cleaner more modular code. You make use of a database model, file logger, config file loader, and misc classes throughout many classes in your project. Your decide to use Dependency Injection to solve these issues.

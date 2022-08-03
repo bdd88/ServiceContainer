@@ -1,103 +1,159 @@
 <?php
-namespace bdd88\ServiceContainer;
+namespace Bdd88\ServiceContainer;
 
 use ReflectionClass;
 
 /**
- * An automatic (recursive) dependency injection container.
+ * An automated recursive dependency injection container.
  * 
- * @version 1.0.1
+ * @version 1.1.0
  * @link https://github.com/bdd88/ServiceContainer
  */
 class ServiceContainer
 {
-    private array $objects = array();
-    private array $aliases = array();
+    private array $classReflections;
+    private array $dependencyMaps;
+    private array $objects;
 
-    public function __construct()
+    /** Ensure consistency for class namespaces (since reflection doesn't use a leading slash). */
+    private function validateNamespace(string $className): string
     {
-        $this->loadAliasesConfig();
-    }
-
-    /** Parse an ini file for mapping/aliasing abstract classes to concrete classes. */
-    public function loadAliasesConfig(?string $aliasConfigPath = NULL): void
-    {
-        $aliasConfigPath = $aliasConfigPath ?? dirname(__DIR__, 1) . DIRECTORY_SEPARATOR . 'Config' . DIRECTORY_SEPARATOR . 'aliases.default.ini';
-        $this->aliases = parse_ini_file($aliasConfigPath, TRUE, INI_SCANNER_TYPED);
-    }
-
-    /** Checks if a namespace string is properly formatted, and will correct it if it isn't. */
-    public function validateNamespace(string $namespaceString): string
-    {
-        $namespaceArray = explode('\\', $namespaceString);
-        if ($namespaceArray[0] !== '') {
-            array_unshift($namespaceArray, '');
+        if ($className[0] === '\\') {
+            $className = substr($className, 1);
         }
-        if (end($namespaceArray) === '') {
-            array_shift($namespaceArray);
-        }
-        return implode('\\', $namespaceArray);
+        return $className;
     }
 
-    /** Create a list of class dependencies for a specified class. */
-    private function listDependencies(ReflectionClass $class): array
+    /** Retrieve or create an instantiable class reflection. */
+    private function getReflection(string $className): ReflectionClass|NULL
     {
-        $classDependencies = array();
-        $constructor = $class->getConstructor();
-        if (isset($constructor)) {
-            if ($constructor->getNumberOfParameters() > 0) {
-                foreach ($constructor->getParameters() as $parameter) {
-                    $dependencyName = (string) $parameter->getType();
-                    $dependencyName = $this->validateNamespace($dependencyName);
-                    if (class_exists($dependencyName)) {
-                        $classDependencies[] = $dependencyName;
-                    }
-                }
+        // Retrieve the reflection if already in the map.
+        if (isset($this->classReflections[$className])) {
+            return $this->classReflections[$className];
+        }
+
+        // Attempt to create the reflection and store it in the map.
+        if (class_exists($className) === FALSE) {
+            return NULL;
+        }
+        $classReflection = new ReflectionClass($className);
+        if ($classReflection->isInstantiable() === FALSE) {
+            return NULL;
+        }
+        $this->classReflections[$className] = $classReflection;
+        return $classReflection;
+    }
+
+    /** Use type hinting in a class constructor to list the direct object dependencies. */
+    private function listClassDependencies(string $className): array|NULL
+    {
+        // Retrieve the dependency map if it has already been calculated previously.
+        if (isset($this->dependencyMaps[$className])) {
+            return $this->dependencyMaps[$className];
+        }
+
+        // Get the class reflection.
+        $classReflection = $this->getReflection($className);
+        if ($classReflection === NULL) {
+            return NULL;
+        }
+
+        // Check to see if dependencies exist.
+        $classConstructor = $classReflection->getConstructor();
+        if ($classConstructor === NULL) {
+            return NULL;
+        }
+        if ($classConstructor->getNumberOfParameters() === 0) {
+            return NULL;
+        }
+
+        // Use reflection to examine constructor type hinting. Store the class dependencies in the mapping.
+        $dependencies = array();
+        foreach ($classConstructor->getParameters() as $parameter) {
+            $dependencyName = $parameter->getType()->getName();
+            if (class_exists($dependencyName)) {
+                $dependencies[] = $dependencyName;
             }
         }
-        return $classDependencies;
+        $this->dependencyMaps[$className] = $dependencies;
+        return $dependencies;
+    }
+
+    /** Recursively create the tree of class dependencies for the requested object class. */
+    private function createDependencyTree(string $className): array
+    {
+        $dependencyTree[] = $className;
+        $branch = $this->listClassDependencies($className);
+        if ($branch !== NULL) {
+            foreach ($branch as $leaf) {
+                $dependencyTree = array_merge($dependencyTree, $this->createDependencyTree($leaf));
+            }
+        }
+        return $dependencyTree;
     }
 
     /**
-     * Recursively create/retrieve object dependencies.
+     * Create, store, and return an object of the requested class.
      *
-     * @param string $className Must have the fully qualified namespace included. IE \FreshFrame\Model\Logger
-     * @param array|null $parameters Additional construction parameters.
-     * @return object|null The object instance of the requested class.
+     * @param string $className The class name including namespace of the object to be created.
+     * @param array|null $parameters (optional) Additional non-object arguments.
+     * @return object|FALSE Returns the requested object on success, or FALSE if the object couldn't be created.
      */
-    public function create(string $className, ?array $parameters = NULL): object|NULL
+    public function create(string $className, ?array $parameters = NULL): object|FALSE
     {
+        // Check the class can be instantiated.
         $className = $this->validateNamespace($className);
-        $class = new ReflectionClass($className);
-        if ($class->isInstantiable()) {
-            $dependencyObjects = array();
-            $dependencyNames = $this->listDependencies($class);
-            if ($dependencyNames > 0) {
-                foreach ($dependencyNames as $dependencyName) {
-                    if (array_key_exists($dependencyName, $this->aliases)) {
-                        $dependencyName = $this->aliases[$dependencyName];
-                    }
-                    if (!array_key_exists($dependencyName, $this->objects)) {
-                        $this->create($dependencyName);
-                    }
-                    $dependencyObjects[] = $this->objects[$dependencyName];
+        if ($this->getReflection($className) === NULL) {
+            return FALSE;
+        }
+
+        // Create, store, and inject each object in the tree from leaf to root.
+        $dependencyTree = $this->createDependencyTree($className);
+        foreach (array_reverse($dependencyTree) as $dependencyName) {
+
+            // Immediately return the requested object if it has already been intantiated.
+            if (isset($this->objects[$dependencyName])) {
+                continue;
+            }
+
+            // Build the constructor arguments array from stored objects.
+            $arguments = array();
+            if (isset($this->dependencyMaps[$dependencyName])) {
+                foreach ($this->dependencyMaps[$dependencyName] as $injection) {
+                    $arguments[] = $this->objects[$injection];
                 }
             }
 
-            // Instantiate the requested object by injecting dependencies, store it for future use, and return it.
-            $instanceArgs = (isset($parameters)) ? array_merge($dependencyObjects, $parameters) : $dependencyObjects;
-            $object = $class->newInstanceArgs($instanceArgs);
-            $this->objects[$className] = $object;
-            return $object;
-        }
-    }
+            // Add user supplied arguments to the arguments array.
+            if ($dependencyName === $className && isset($parameters)) {
+                $arguments = array_merge($arguments, $parameters);
+            }
 
-    /** Retrieve a previously instantiated object and return it. */
-    public function get(string $className): object
-    {
+            // Inject depedendencies and store the newly instantiated object.
+            $classReflection = $this->getReflection($dependencyName);
+            $this->objects[$dependencyName] = $classReflection->newInstanceArgs($arguments);
+        }
+
         return $this->objects[$className];
     }
 
+    /**
+     * Retrieve a previously created object.
+     *
+     * @param string $className The class name including namespace of the object to be created.
+     * @return object|FALSE Returns the requested object on success, or FALSE if the object hasn't been created yet.
+     */
+    public function get(string $className): object|FALSE
+    {
+        $className = $this->validateNamespace($className);
+        if (isset($this->objects[$className])) {
+            return $this->objects[$className];
+        }
+        return FALSE;
+    }
+
 }
+
+
 
 ?>
