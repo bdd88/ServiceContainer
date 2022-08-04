@@ -6,7 +6,7 @@ use ReflectionClass;
 /**
  * An automated recursive dependency injection container.
  * 
- * @version 1.1.0
+ * @version 1.1.1
  * @link https://github.com/bdd88/ServiceContainer
  */
 class ServiceContainer
@@ -18,13 +18,10 @@ class ServiceContainer
     /** Ensure consistency for class namespaces (since reflection doesn't use a leading slash). */
     private function validateNamespace(string $className): string
     {
-        if ($className[0] === '\\') {
-            $className = substr($className, 1);
-        }
-        return $className;
+        return ($className[0] === '\\') ? substr($className, 1) : $className;
     }
 
-    /** Retrieve or create an instantiable class reflection. */
+    /** Retrieve or create a reflection of an instantiable class. */
     private function getReflection(string $className): ReflectionClass|NULL
     {
         // Retrieve the reflection if already in the map.
@@ -32,10 +29,12 @@ class ServiceContainer
             return $this->classReflections[$className];
         }
 
-        // Attempt to create the reflection and store it in the map.
+        // Check if the supplied className is actually a class.
         if (class_exists($className) === FALSE) {
             return NULL;
         }
+
+        // Create the reflection and store it for future use before returning.
         $classReflection = new ReflectionClass($className);
         if ($classReflection->isInstantiable() === FALSE) {
             return NULL;
@@ -58,16 +57,18 @@ class ServiceContainer
             return NULL;
         }
 
-        // Check to see if dependencies exist.
+        // Check to see if a constructor exists.
         $classConstructor = $classReflection->getConstructor();
         if ($classConstructor === NULL) {
             return NULL;
         }
+
+        // Check to see if there are dependencies.
         if ($classConstructor->getNumberOfParameters() === 0) {
             return NULL;
         }
 
-        // Use reflection to examine constructor type hinting. Store the class dependencies in the mapping.
+        // Use reflection to examine constructor type hinting, and store the class dependencies in the mapping.
         $dependencies = array();
         foreach ($classConstructor->getParameters() as $parameter) {
             $dependencyName = $parameter->getType()->getName();
@@ -146,14 +147,9 @@ class ServiceContainer
     public function get(string $className): object|FALSE
     {
         $className = $this->validateNamespace($className);
-        if (isset($this->objects[$className])) {
-            return $this->objects[$className];
-        }
-        return FALSE;
+        return $this->objects[$className] ?? FALSE;
     }
 
 }
-
-
 
 ?>
