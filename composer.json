@@ -1,0 +1,11 @@
+{
+    "name": "bdd88/servicecontainer",
+    "description": "An automatic recursive dependency injection container.",
+    "type": "library",
+    "autoload": {
+        "psr-4": {
+            "Bdd88\\ServiceContainer\\": ""
+        }
+    },
+    "require": {}
+}
